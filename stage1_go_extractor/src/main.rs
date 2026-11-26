@@ -15,9 +15,22 @@ use lsp_types::{
     SemanticTokensRangeResult, SymbolKind, Url,
 };
 use regex::Regex;
+use serde_json::json;
 
 #[derive(Parser)]
 struct Args {
+    /// Build OS (GOOS setting)
+    #[arg(long)]
+    build_os: Option<String>,
+    /// Build architecture (GOARCH setting)
+    #[arg(long)]
+    build_arch: Option<String>,
+    /// Extra comma-separated build tags
+    #[arg(long)]
+    build_tags: Option<String>,
+    /// Skip tests
+    #[arg(long)]
+    skip_tests: bool,
     /// Path to `go.mod` file
     manifest: PathBuf,
 }
@@ -34,13 +47,41 @@ async fn main() -> Result<()> {
         .ok_or_else(|| anyhow!("Invalid manifest path"))?
         .canonicalize()?;
 
+    let mut lsp_options = json!({
+        "linksInHover": false,
+        "semanticTokens": true,
+        "build.buildFlags": [],
+        "build.env": {}
+    });
+
+    let lsp_options_map = lsp_options.as_object_mut().unwrap();
+
+    let build_flags = lsp_options_map
+        .get_mut("build.buildFlags")
+        .unwrap()
+        .as_array_mut()
+        .unwrap();
+
+    if let Some(tags) = args.build_tags {
+        build_flags.push(format!("-tags={tags}").into());
+    }
+
+    let build_env = lsp_options_map
+        .get_mut("build.env")
+        .unwrap()
+        .as_object_mut()
+        .unwrap();
+    if let Some(os) = args.build_os {
+        build_env.insert("GOOS".to_string(), os.into());
+    }
+    if let Some(arch) = args.build_arch {
+        build_env.insert("GOARCH".to_string(), arch.into());
+    }
+
     let mut lsp = lsp::Client::new(lsp::ClientArgs {
         language: "go".to_string(),
         lsp_bin: "gopls".into(),
-        lsp_options: serde_json::json!({
-            "linksInHover": false,
-            "semanticTokens": true
-        }),
+        lsp_options,
         root_dir: root_dir.clone(),
     })
     .await?;
@@ -59,6 +100,16 @@ async fn main() -> Result<()> {
     for entry in walk {
         let entry = entry?;
         if !entry.file_type().is_some_and(|s| s.is_file()) {
+            continue;
+        }
+
+        // by a strict Go convention, all test files are suffixed with _test
+        if args.skip_tests
+            && entry
+                .file_name()
+                .to_str()
+                .is_some_and(|s| s.ends_with("_test.go"))
+        {
             continue;
         }
 
