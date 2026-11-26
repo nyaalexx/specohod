@@ -29,6 +29,7 @@ pub struct Symbols {
     pub methods: Vec<MethodInfo>,
     pub structs: Vec<StructInfo>,
     pub types: Vec<TypeInfo>,
+    pub interfaces: Vec<InterfaceInfo>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -53,6 +54,14 @@ pub struct StructInfo {
     #[serde(skip_serializing_if = "str::is_empty")]
     pub doc: String,
     pub fields: Vec<FieldInfo>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct InterfaceInfo {
+    pub name: String,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    pub doc: String,
+    pub methods: Vec<MethodInfo>,
 }
 
 #[derive(Debug, Serialize, Clone)]

@@ -183,6 +183,10 @@ async fn extract_public_symbols(lsp: &mut lsp::Client, url: &Url) -> Result<sche
             SymbolKind::CLASS => {
                 res.types.push(extract_type(lsp, url, symbol).await?);
             }
+            SymbolKind::INTERFACE => {
+                res.interfaces
+                    .push(extract_interface(lsp, url, symbol).await?);
+            }
             _ => {}
         }
     }
@@ -244,11 +248,12 @@ fn is_symbol_public(symbol: &DocumentSymbol) -> bool {
     match symbol.kind {
         SymbolKind::METHOD => {
             // for methods, the format is (...).MethodName so we look for the dot
+            // if there's no dot, it's an interface method
             name.rfind('.')
                 .map(|idx| starts_uppercase(&name[idx + 1..]))
-                .unwrap_or(false)
+                .unwrap_or_else(|| starts_uppercase(name))
         }
-        _ => starts_uppercase(&symbol.name),
+        _ => starts_uppercase(name),
     }
 }
 
@@ -328,6 +333,29 @@ async fn extract_type(
         name: symbol.name,
         signature: symbol.detail.unwrap_or_default(),
         doc,
+    })
+}
+
+async fn extract_interface(
+    lsp: &mut lsp::Client,
+    url: &Url,
+    symbol: DocumentSymbol,
+) -> Result<schema::InterfaceInfo> {
+    let doc = get_hover_doc(lsp, url, &symbol).await?;
+
+    let mut methods = Vec::new();
+
+    for child in symbol.children.into_iter().flatten() {
+        if child.kind != SymbolKind::METHOD || !is_symbol_public(&child) {
+            continue;
+        }
+        methods.push(extract_method(lsp, url, child).await?);
+    }
+
+    Ok(schema::InterfaceInfo {
+        name: symbol.name,
+        doc,
+        methods,
     })
 }
 
